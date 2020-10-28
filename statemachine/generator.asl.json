@@ -1,0 +1,99 @@
+{
+    "Comment": "A state machine that stores random number in ddb",
+    "StartAt": "Number Flow",
+    "States": {
+        "Number Flow": {
+            "Type": "Parallel",
+            "End": true,
+            "Branches": [
+                {
+                    "StartAt": "Generate Number 0sec",
+                    "States": {
+                        "Generate Number 0sec": {
+                            "Type": "Task",
+                            "Resource": "${GenNumberFunctionArn}",
+                            "Retry": [
+                                {
+                                    "ErrorEquals": [
+                                        "States.TaskFailed"
+                                    ],
+                                    "IntervalSeconds": 5,
+                                    "MaxAttempts": 2
+                                }
+                            ],
+                            "Next": "Enrich"
+                        },
+                        "Enrich": {
+                            "Type": "Task",
+                            "Resource": "${EnrichFunctionArn}",
+                            "Retry": [
+                                {
+                                    "ErrorEquals": [
+                                        "States.TaskFailed"
+                                    ],
+                                    "IntervalSeconds": 2,
+                                    "MaxAttempts": 2,
+                                    "BackoffRate": 2
+                                }
+                            ],
+                            "Next": "Record Transaction"
+                        },
+                        "Record Transaction": {
+                            "Type": "Task",
+                            "End": true,
+                            "Resource": "${DDBPutItem}",
+                            "Parameters": {
+                                "TableName": "${DDBTable}",
+                                "Item": {
+                                    "Id": {
+                                        "S.$": "$.id"
+                                    },
+                                    "Number": {
+                                        "N.$": "$.number"
+                                    },
+                                    "Timestamp": {
+                                        "S.$": "$.timestamp"
+                                    }
+                                }
+                            },
+                            "Retry": [
+                                {
+                                    "ErrorEquals": [
+                                        "States.TaskFailed"
+                                    ],
+                                    "IntervalSeconds": 10,
+                                    "MaxAttempts": 3,
+                                    "BackoffRate": 5
+                                }
+                            ]                            
+                        }
+                    }
+                },
+                {
+                    "StartAt": "Wait 30 seconds",
+                    "States": {
+                        "Wait 30 seconds": {
+                            "Type": "Wait",
+                            "Seconds": 30,
+                            "Next": "Generate Number 30sec"
+                        },
+                        "Generate Number 30sec": {
+                            "Type": "Task",
+                            "End": true,
+                            "Resource": "${GenNumberFunctionArn}",
+                            "Retry": [
+                                {
+                                    "ErrorEquals": [
+                                        "States.TaskFailed"
+                                    ],
+                                    "IntervalSeconds": 5,
+                                    "MaxAttempts": 2
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

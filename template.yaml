@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aws-api-statemachine
+
+  Sample SAM Template for aws-api-statemachine
+
+Resources:
+  NumberGenStateMachine:
+    Type: AWS::Serverless::StateMachine # More info about State Machine Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-statemachine.html
+    Properties:
+      DefinitionUri: statemachine/generator.asl.json
+      DefinitionSubstitutions:
+        GenNumberFunctionArn: !GetAtt GenNumberFunction.Arn
+        EnrichFunctionArn: !GetAtt EnrichFunction.Arn
+        DDBPutItem: !Sub arn:${AWS::Partition}:states:::dynamodb:putItem
+        DDBTable: !Ref TransactionTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /start
+            Method: get
+      Policies: # Find out more about SAM policy templates: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-policy-templates.html
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenNumberFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref EnrichFunction
+        - DynamoDBWritePolicy:
+            TableName: !Ref TransactionTable
+
+  GenNumberFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html
+    Properties:
+      CodeUri: functions/number-generator/
+      Handler: app.lambdaHandler
+      Runtime: nodejs12.x
+
+  EnrichFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html
+    Properties:
+      CodeUri: functions/enrich-object/
+      Handler: app.lambdaHandler
+      Runtime: nodejs12.x
+
+
+  TransactionTable:
+    Type: AWS::Serverless::SimpleTable # More info about SimpleTable Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-simpletable.html
+    Properties:
+      PrimaryKey:
+        Name: Id
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+Outputs:
+  # NumberGenStateMachine HourlyTradingSchedule is an implicit Schedule event rule created out of Events key under Serverless::StateMachine
+  # Find out more about other implicit resources you can reference within SAM
+  # https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-specification-generated-resources.html
+  NumberGenStateMachineArn:
+    Description: "number generator state machine ARN"
+    Value: !Ref NumberGenStateMachine
+  NumberGenStateMachineRole:
+    Description: "IAM Role created for Number Generator state machine based on the specified SAM Policy Templates"
+    Value: !GetAtt NumberGenStateMachineRole.Arn
