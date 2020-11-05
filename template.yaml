@@ -59,7 +59,8 @@ Resources:
         "Fn::Transform":
           Name: AWS::Include
           Parameters:
-            Location: !Ref OpenAPIS3File
+            Location: openapi.yaml
+            # Location: !Ref OpenAPIS3File
 
   StateExecutionRole:
     Type: AWS::IAM::Role
