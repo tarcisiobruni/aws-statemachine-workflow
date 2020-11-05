@@ -5,44 +5,129 @@ Description: >
 
   Sample SAM Template for aws-api-statemachine
 
+Parameters:
+  OpenAPIS3File:
+    Description: '"openapi.yaml" file location'
+    Default: ./openapi.yaml
+    Type: String
+
+Globals:
+  Function:
+    Runtime: nodejs12.x
+    Timeout: 30
+    MemorySize: 256
+
 Resources:
+  ApiGatewayStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: !Join ["", ["/", !Ref "AWS::StackName", "/"]]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowApiGatewayServiceToAssumeRole
+            Effect: Allow
+            Action:
+              - "sts:AssumeRole"
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+      Policies:
+        - PolicyName: CallStepFunctions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "states:StartExecution"
+                Resource: !Ref NumberGenStateMachine
+        - PolicyName: DescribeStepFunctionExecutions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "states:DescribeExecution"
+                Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${NumberGenStateMachine.Name}:*
+
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Name: !Sub ${AWS::StackName}-api
+      DefinitionBody:
+        "Fn::Transform":
+          Name: AWS::Include
+          Parameters:
+            Location: !Ref OpenAPIS3File
+
+  StateExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - !Sub states.${AWS::Region}.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "StatesExecutionPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "lambda:InvokeFunction"
+                Resource:
+                  - !GetAtt GenNumberFunction.Arn
+                  - !GetAtt EnrichFunction.Arn
+              - Effect: Allow
+                Action:
+                  - "dynamodb:*"
+                Resource:
+                  - !GetAtt TransactionTable.Arn
+              - Effect: Allow
+                Action:
+                  - "logs:*"
+                Resource: "*"
+
+  MyStateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 1
+
   NumberGenStateMachine:
     Type: AWS::Serverless::StateMachine # More info about State Machine Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-statemachine.html
     Properties:
+      Name: NumGenStateMachineExpress
+      Type: EXPRESS
+      Logging:
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt MyStateMachineLogGroup.Arn
+        IncludeExecutionData: True
+        Level: ALL
+      Role: !GetAtt StateExecutionRole.Arn
       DefinitionUri: statemachine/generator.asl.json
       DefinitionSubstitutions:
         GenNumberFunctionArn: !GetAtt GenNumberFunction.Arn
         EnrichFunctionArn: !GetAtt EnrichFunction.Arn
         DDBPutItem: !Sub arn:${AWS::Partition}:states:::dynamodb:putItem
         DDBTable: !Ref TransactionTable
-      Events:
-        ApiEvent:
-          Type: Api
-          Properties:
-            Path: /start
-            Method: get
-      Policies: # Find out more about SAM policy templates: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-policy-templates.html
-        - LambdaInvokePolicy:
-            FunctionName: !Ref GenNumberFunction
-        - LambdaInvokePolicy:
-            FunctionName: !Ref EnrichFunction
-        - DynamoDBWritePolicy:
-            TableName: !Ref TransactionTable
 
   GenNumberFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html
     Properties:
       CodeUri: functions/number-generator/
       Handler: app.lambdaHandler
-      Runtime: nodejs12.x
 
   EnrichFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html
     Properties:
       CodeUri: functions/enrich-object/
       Handler: app.lambdaHandler
-      Runtime: nodejs12.x
-
 
   TransactionTable:
     Type: AWS::Serverless::SimpleTable # More info about SimpleTable Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-simpletable.html
@@ -61,6 +146,3 @@ Outputs:
   NumberGenStateMachineArn:
     Description: "number generator state machine ARN"
     Value: !Ref NumberGenStateMachine
-  NumberGenStateMachineRole:
-    Description: "IAM Role created for Number Generator state machine based on the specified SAM Policy Templates"
-    Value: !GetAtt NumberGenStateMachineRole.Arn

@@ -12,6 +12,7 @@ function getRandomInt(max) {
  * 
  */
 exports.lambdaHandler = async (event, context) => {
-    var number = getRandomInt(100) 
+    console.log(event);
+    var number = getRandomInt(100);
     return { 'number': number }
 };
